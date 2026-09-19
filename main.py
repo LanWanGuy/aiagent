@@ -1,6 +1,9 @@
-import os, argparse
+import os, argparse, json
 from dotenv import load_dotenv
 from openai import OpenAI
+from prompts import system_prompt
+from call_function import available_functions, call_function
+
 
 def main():
 
@@ -22,25 +25,55 @@ def main():
 
     messages = [
         {
+            "role": "system",
+            "content": system_prompt,
+        },
+        {
             "role": "user",
             "content": args.question,
         }
     ]
 
-    response = client.chat.completions.create(
-        model="openrouter/free",
-        messages=messages
-    )
-    if response.usage != None:
+    for _ in range(20):
+        response = client.chat.completions.create(
+            model="openrouter/free",
+            messages=messages,
+            tools=available_functions,
+        )
+        if response.usage == None:
+            raise RuntimeError("No usage data available")
+
         if args.verbose:
-            print (f"User prompt: {args.question}")
-            print (f"Prompt tokens: {response.usage.prompt_tokens}")
-            print (f"Response tokens: {response.usage.completion_tokens}")
-            print (response.choices[0].message.content)
+            # print (f"User prompt: {args.question}")
+            # print (f"Prompt tokens: {response.usage.prompt_tokens}")
+            # print (f"Response tokens: {response.usage.completion_tokens}")
+            message = response.choices[0].message
+            if message.tool_calls:
+                for tool_call in message.tool_calls:
+                    function_args = json.loads(tool_call.function.arguments or "{}")
+                    result_message = call_function(tool_call, function_args)
+                    if not result_message["content"]:
+                        raise RuntimeError(f"Function {tool_call.function.name} returned no content")
+                    else:
+                        print(f"-> {result_message['content']}")
+            else:
+                print(message)
         else:
-            print (response.choices[0].message.content)
-    else:
-        raise RuntimeError("No usage data available")
+            message = response.choices[0].message
+            if message.tool_calls:
+                messages.append(message)
+                for tool_call in message.tool_calls:
+                    function_args = json.loads(tool_call.function.arguments or "{}")
+                    result_message = call_function(tool_call, function_args)
+                    if not result_message["content"]:
+                        raise RuntimeError(f"Function {tool_call.function.name} returned no content")
+                    messages.append(result_message)
+            else:
+                messages.append(message)
+                print(str(message.content))
+                break
+
+
 
 if __name__ == "__main__":
     main()
