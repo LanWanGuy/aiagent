@@ -73,7 +73,5 @@ def main():
                 print(str(message.content))
                 break
 
-
-
 if __name__ == "__main__":
     main()
